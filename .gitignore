@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+*.db
+*.sqlite3
+
+# Node
+node_modules/
+dist/
+.env
+.env.local
+
+# C / PlatformIO
+.pio/
+.pioenvs/
+*.o
+*.elf
+*.bin
+*.hex
+
+# Docker
+*.log
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store
+
+# Secretos (nunca subir)
+*.pem
+*secrets*
+config.local.*

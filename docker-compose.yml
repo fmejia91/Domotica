@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  mqtt-broker:
+    image: eclipse-mosquitto:2.0
+    container_name: domotica_mqtt
+    ports:
+      - "1883:1883"       # Puerto MQTT estándar
+      - "9001:9001"       # Puerto MQTT sobre WebSockets (útil para el futuro)
+    volumes:
+      - ./infraestructura/mosquitto/config:/mosquitto/config
+      - ./infraestructura/mosquitto/data:/mosquitto/data
+      - ./infraestructura/mosquitto/log:/mosquitto/log
+    restart: unless-stopped
