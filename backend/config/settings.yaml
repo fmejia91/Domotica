@@ -1,0 +1,41 @@
+# config/settings.yaml
+# Configuración inicial de zonas y dispositivos para el sistema domótico
+
+zonas:
+  entrada:
+    nombre: "Entrada"
+    dispositivos:
+      luz_entrada: { nombre: "Luz Entrada", estado: false }
+  
+  escaleras:
+    nombre: "Escaleras"
+    dispositivos:
+      foco_techo: { nombre: "Foco de Techo", estado: false }
+  
+  cocina:
+    nombre: "Cocina"
+    dispositivos:
+      luz_principal: { nombre: "Luz Principal Cocina", estado: false }
+      barra: { nombre: "Luz Barra", estado: false }
+  
+  sala:
+    nombre: "Sala"
+    dispositivos:
+      lampara_sofica: { nombre: "Lámpara Sofá", estado: false }
+      luz_ambiental: { nombre: "Luz Ambiental", estado: false }
+  
+  recamara_principal:
+    nombre: "Recámara Principal"
+    dispositivos:
+      luz_1: { nombre: "Luz Techo 1", estado: false }
+      luz_2: { nombre: "Luz Techo 2", estado: false }
+      luz_3: { nombre: "Luz Techo 3", estado: false }
+      luz_4: { nombre: "Luz Techo 4", estado: false }
+
+  recamara_secundaria:
+    nombre: "Recámara Secundaria"
+    dispositivos:
+      luz_1: { nombre: "Luz Techo 1", estado: false }
+      luz_2: { nombre: "Luz Techo 2", estado: false }
+      luz_3: { nombre: "Luz Techo 3", estado: false }
+      luz_4: { nombre: "Luz Techo 4", estado: false }
