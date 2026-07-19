@@ -1,0 +1,43 @@
+/* style.css */
+
+/* Custom transiciones globales suaves estilo iOS */
+* {
+    -webkit-tap-highlight-color: transparent; /* Elimina el flash azul al tocar en móviles */
+    transition: background-color 0.25s ease, border-color 0.25s ease, transform 0.1s ease;
+}
+
+/* Estado base del botón/tarjeta de dispositivo (Apagado) */
+.smart-card {
+    background-color: #f8fafc; /* bg-slate-50 */
+    border-color: #e2e8f0;     /* border-slate-200 */
+    min-height: 110px;         /* Espacio ergonómico amplio para el pulgar */
+    cursor: pointer;
+}
+
+/* Efecto feedback táctil inmediato al presionar */
+.smart-card:active {
+    transform: scale(0.96);
+}
+
+/* Estado de la tarjeta cuando el dispositivo está ENCENDIDO */
+.smart-card.active {
+    background-color: #ffffff;
+    border-color: transparent;
+    box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.08), 0 8px 10px -6px rgba(79, 70, 229, 0.08); /* Sombra suave Indigo */
+}
+
+/* Cambios en el icono cuando está encendido */
+.smart-card.active .icon-light {
+    color: #f59e0b !important; /* Amber-500 (Efecto bombilla encendida) */
+    filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.4));
+}
+
+/* Punto de estado visual rápido */
+.smart-card.active .status-dot {
+    background-color: #10b981 !important; /* Emerald-500 */
+}
+
+/* Ajustes finos para los interruptores tipo iOS (Toggle Switches) */
+input:checked ~ div {
+    box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+}
