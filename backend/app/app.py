@@ -1,137 +1,102 @@
-import os
 import yaml
+import json
+import logging
 from flask import Flask, render_template, jsonify, request
 import paho.mqtt.client as mqtt
-import json
 
+# --- CONFIGURACIÓN DE LOGGING SENIOR ---
+# Configuramos el nivel a INFO y el formato para incluir timestamp y nivel de error
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
-base_dir = os.path.abspath(os.path.dirname(__file__)) # apunta a backend/app/
-frontend_dir = os.path.join(base_dir, '../../frontend') # apunta a la raíz y luego a frontend/
+app = Flask(__name__)
 
-app = Flask(__name__, template_folder=frontend_dir, static_folder=frontend_dir)
-""" 
-app = Flask(__name__, 
-            template_folder='frontend',  # Apunta a tus carpetas reales
-            static_folder='frontend') """
-
-# -------------------------------------------------------------------------
-# CONFIGURACIÓN DEL BROKER MQTT (Contenedor Docker en WSL2)
-# -------------------------------------------------------------------------
-MQTT_BROKER = "127.0.0.1"  # Al estar en WSL2 y mapear el puerto, localhost es directo
+# --- CONFIGURACIÓN DE RUTAS ---
+CONFIG_PATH = "../../config/settings.yaml"
+MQTT_BROKER = "localhost"  # Broker Mosquitto en Docker [2, 3]
 MQTT_PORT = 1883
-MQTT_TOPIC_PUBLISH = "domotica/casa/cambio_estado"
 
-mqtt_client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
-
-def init_mqtt():
-    """Inicializa y conecta el cliente MQTT de forma no bloqueante"""
+def load_config():
+    """Carga la configuración y loguea posibles errores de archivo [4, 5]."""
     try:
-        mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-        # Iniciamos el bucle de red en un hilo separado para no bloquear el servidor Flask
-        mqtt_client.loop_start()
-        print(f" [*] Puente MQTT conectado exitosamente a {MQTT_BROKER}:{MQTT_PORT}")
+        with open(CONFIG_PATH, 'r') as f:
+            logger.info(f"[CONFIG] Cargando configuración desde {CONFIG_PATH}")
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        logger.error(f"[CONFIG] Error crítico: No se encontró el archivo en {CONFIG_PATH}")
+        return {"zonas": {}}
     except Exception as e:
-        print(f" [!] Error crítico al conectar al Broker MQTT: {e}")
+        logger.error(f"[CONFIG] Error inesperado al leer YAML: {str(e)}")
+        return {"zonas": {}}
 
-# -------------------------------------------------------------------------
-# CARGA DE CONFIGURACIÓN DOMÓTICA (YAML)
-# -------------------------------------------------------------------------
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'settings.yaml')
+# --- LÓGICA MQTT CON CALLBACKS DE ESTADO ---
+# Usamos CallbackAPIVersion.VERSION2 para evitar DeprecationWarnings [6].
+mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
-def cargar_configuracion():
-    with open(CONFIG_PATH, 'r', encoding='utf-8') as file:
-        return yaml.safe_load(file)
+def on_connect(client, userdata, flags, rc, properties):
+    """Callback para verificar la conexión con el broker [7, 8]."""
+    if rc == 0:
+        logger.info(f"[MQTT] Conexión establecida exitosamente con el broker en {MQTT_BROKER}:{MQTT_PORT}")
+    else:
+        logger.error(f"[MQTT] Fallo en la conexión. Código de error: {rc}")
 
-def guardar_configuracion(config):
-    with open(CONFIG_PATH, 'w', encoding='utf-8') as file:
-        yaml.safe_dump(config, file, default_flow_style=False, allow_unicode=True)
+def on_publish(client, userdata, mid, reason_code, properties):
+    """Log de confirmación de publicación de mensaje."""
+    logger.debug(f"[MQTT] Mensaje publicado exitosamente (ID: {mid})")
 
-# -------------------------------------------------------------------------
-# RUTAS DEL SERVIDOR WEB & API REST
-# -------------------------------------------------------------------------
+mqtt_client.on_connect = on_connect
+mqtt_client.on_publish = on_publish
+
+try:
+    logger.info(f"[MQTT] Intentando conectar al broker...")
+    mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+    mqtt_client.loop_start() # Mantiene la comunicación asíncrona [9]
+except Exception as e:
+    logger.error(f"[MQTT] No se pudo iniciar el cliente: {str(e)}")
+
+# --- RUTAS DE LA API ---
 
 @app.route('/')
 def index():
-    """Renderiza la interfaz móvil enviando los estados de los dispositivos"""
-    data = cargar_configuracion()
+    """Renderiza la UI y loguea el acceso."""
+    data = load_config()
+    logger.info("[HTTP] Acceso a la interfaz principal detectado.")
     return render_template('index.html', zonas=data.get('zonas', {}))
 
-@app.route('/toggle/<zona>/<dispositivo_id>', methods=['POST'])
-def toggle_dispositivo(zona, dispositivo_id):
-    """Cambia el estado de una bombilla y lo publica en el ecosistema MQTT"""
-    config = cargar_configuracion()
-    zonas = config.get('zonas', {})
-    
-    if zona in zonas and dispositivo_id in zonas[zona]['dispositivos']:
-        # 1. Mutar estado local/memoria
-        estado_actual = zonas[zona]['dispositivos'][dispositivo_id]['estado']
-        nuevo_estado = not estado_actual
-        zonas[zona]['dispositivos'][dispositivo_id]['estado'] = nuevo_estado
-        guardar_configuracion(config)
-        
-        # 2. Generar el Payload de control para los ESP32 (Estructura IoT Limpia)
-        payload = {
-            "zona": zona,
-            "dispositivo": dispositivo_id,
-            "estado": "ON" if nuevo_estado else "OFF",
-            "tipo": zonas[zona]['dispositivos'][dispositivo_id].get('tipo', 'luz')
-        }
-        
-        # 3. Publicar el mensaje vía MQTT
-        # Usamos qos=1 (garantiza que el mensaje llegue al broker al menos una vez)
-        mqtt_client.publish(MQTT_TOPIC_PUBLISH, json.dumps(payload), qos=1)
-        
-        return jsonify({
-            "status": "success", 
-            "zona": zona, 
-            "dispositivo": dispositivo_id, 
-            "nuevo_estado": nuevo_estado
-        }), 200
-        
-    return jsonify({"status": "error", "message": "Dispositivo o Zona no encontrada"}), 404
-
-@app.route('/zona/maestro/<zona_nombre>', methods=['POST'])
-def maestro_zona(zona_nombre):
-    """Control masivo de una zona completa y su respectivo envío MQTT masivo o por ráfaga"""
-    req_data = request.get_json() or {}
-    forzar_estado = req_data.get('estado') # Espera un booleano (true/false)
-    
-    config = cargar_configuracion()
-    zonas = config.get('zonas', {})
-    
-    if zona_nombre in zonas:
-        dispositivos = zonas[zona_nombre]['dispositivos']
-        
-        # Si no especifican estado, hacemos un toggle colectivo basado en el primer elemento
-        if forzar_estado is None:
-            primer_disp = list(dispositivos.keys())[0]
-            forzar_estado = not dispositivos[primer_disp]['estado']
-            
-        # Actualizamos todos los dispositivos de la zona y disparamos comandos MQTT
-        for disp_id in dispositivos:
-            dispositivos[disp_id]['estado'] = forzar_estado
-            
-            payload = {
-                "zona": zona_nombre,
-                "dispositivo": disp_id,
-                "estado": "ON" if forzar_estado else "OFF",
-                "tipo": dispositivos[disp_id].get('tipo', 'luz')
-            }
-            mqtt_client.publish(MQTT_TOPIC_PUBLISH, json.dumps(payload), qos=1)
-            
-        guardar_configuracion(config)
-        return jsonify({"status": "success", "zona": zona_nombre, "estado_colectivo": forzar_estado}), 200
-
-    return jsonify({"status": "error", "message": "Zona maestra no válida"}), 404
-
-# -------------------------------------------------------------------------
-# ARRANQUE SEGURO
-# -------------------------------------------------------------------------
-if __name__ == '__main__':
-    init_mqtt() # Levantamos el puente MQTT antes del servidor web
+@app.route('/toggle/<zona>/<dispositivo>', methods=['POST'])
+def toggle_device(zona, dispositivo):
+    """Despachador de comandos individuales con logs de acción [10]."""
+    data = load_config()
     try:
-        app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
-    finally:
-        # Al detener Flask de forma limpia, cerramos el hilo del cliente MQTT
-        mqtt_client.loop_stop()
-        mqtt_client.disconnect()
+        device = data['zonas'][zona]['dispositivos'][dispositivo]
+        nuevo_estado = not device['estado']
+        device['estado'] = nuevo_estado
+        
+        # Persistencia simple en YAML
+        with open(CONFIG_PATH, 'w') as f:
+            yaml.dump(data, f)
+        
+        # Publicación del comando real
+        topic = device['topico_comando']
+        payload = json.dumps({"power": "on" if nuevo_estado else "off"})
+        
+        mqtt_client.publish(topic, payload)
+        logger.info(f"[ACTION] {dispositivo} ({zona}) -> Nuevo estado: {'ENCENDIDO' if nuevo_estado else 'APAGADO'}")
+        logger.info(f"[MQTT] Publicado en tópico: {topic} | Payload: {payload}")
+        
+        return jsonify({"success": True, "estado": nuevo_estado})
+    except KeyError:
+        logger.warning(f"[API] Intento de acceso a dispositivo inexistente: {zona}/{dispositivo}")
+        return jsonify({"success": False, "error": "Dispositivo no encontrado"}), 404
+    except Exception as e:
+        logger.error(f"[API] Error al procesar toggle: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+if __name__ == '__main__':
+    logger.info("[SYSTEM] Iniciando servidor Flask en modo desarrollo...")
+    # Escuchamos en 0.0.0.0 para permitir acceso desde el móvil en la misma red [11].
+    app.run(host='0.0.0.0', port=5000, debug=True)

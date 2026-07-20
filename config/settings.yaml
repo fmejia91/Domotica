@@ -1,0 +1,66 @@
+# Configuración Centralizada de Dispositivos - Domótica Dúplex [8, 17, 18]
+zonas:
+  entrada:
+    nombre: "Entrada"
+    icono: "door-open"
+    dispositivos:
+      luz_entrada:
+        nombre: "Luz Principal"
+        estado: false
+        protocolo: "MQTT"
+        topico_comando: "casa/entrada/luz/comando"
+
+  sala:
+    nombre: "Sala de Estar"
+    icono: "tv"
+    dispositivos:
+      ventilador_dreo:
+        nombre: "Ventilador Dreo"
+        estado: false
+        protocolo: "MQTT"
+        topico_comando: "casa/sala/ventilador/comando" # Escuchado por dreo_fan_driver.py [16]
+      lampara_pie:
+        nombre: "Lámpara de Pie"
+        estado: false
+        protocolo: "MQTT"
+        topico_comando: "casa/sala/lampara/comando"
+
+  cocina:
+    nombre: "Cocina"
+    icono: "utensils"
+    dispositivos:
+      luz_techo:
+        nombre: "Luz Techo"
+        estado: false
+        protocolo: "MQTT"
+        topico_comando: "casa/cocina/techo/comando"
+
+  recamara_principal:
+    nombre: "Recámara Principal"
+    icono: "bed"
+    dispositivos:
+      aire_acondicionado:
+        nombre: "Aire Acondicionado"
+        estado: false
+        protocolo: "MQTT" # Preparado para driver en C o Bridge [19, 20]
+        topico_comando: "casa/principal/ac/comando"
+      luz_cama_izq:
+        nombre: "Luz Izquierda"
+        estado: false
+        protocolo: "MQTT"
+        topico_comando: "casa/principal/luz_izq/comando"
+      luz_cama_der:
+        nombre: "Luz Derecha"
+        estado: false
+        protocolo: "MQTT"
+        topico_comando: "casa/principal/luz_der/comando"
+
+  escaleras:
+    nombre: "Escaleras"
+    icono: "staircase"
+    dispositivos:
+      foco_techo:
+        nombre: "Foco Techo"
+        estado: false
+        protocolo: "MQTT"
+        topico_comando: "casa/escaleras/foco/comando"

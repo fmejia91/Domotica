@@ -1,99 +1,103 @@
-# drivers/dreo_fan_driver.py
+import yaml
 import json
-import time
-import paho.mqtt.client as mqtt
 import requests
 import logging
-import sys
+import paho.mqtt.client as mqtt
+import time
 
-# CONFIGURACIÓN
-MQTT_BROKER = "localhost"  # O la IP de tu contenedor domotica_mqtt
-MQTT_PORT = 1883
-COMMAND_TOPIC = "casa/sala/ventilador/comando"
-STATE_TOPIC = "casa/sala/ventilador/estado"
-
-DREO_EMAIL = "fabian.mejia91@gmail.com"
-DREO_PASSWORD = "Fabuloso91"
-DREO_API_URL = "https://app-api-eu.dreo-cloud.com/api"
-
-# Configuración para ver absolutamente todo lo que pasa en la consola
+# --- CONFIGURACIÓN DE LOGS (Crucial para ver qué sucede) ---
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
+logger = logging.getLogger("DreoDriver")
+
+# --- CONSTANTES Y RUTAS ---
+# URL específica para la región de Europa [5]
+DREO_API_URL = "https://app-api-eu.dreo-cloud.com/"
+CONFIG_PATH = "config/settings.yaml"
+
+def load_config():
+    try:
+        with open(CONFIG_PATH, 'r') as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        logger.error(f"No se pudo cargar el archivo de configuración: {e}")
+        return None
 
 class DreoFanDriver:
-    def __init__(self):
+    def __init__(self, config):
+        self.config = config
         self.token = None
-        self.device_sn = None
-        self.mqtt_client = mqtt.Client()
-
-    def login_dreo(self):
-        """Autenticación en la nube de Dreo para obtener el Bearer Token"""
-        print("[DREO] Autenticando en la nube de Dreo...")
-        payload = {"email": DREO_EMAIL, "password": DREO_PASSWORD}
-        # Nota: En implementaciones reales se calcula un hash/firma, esto es una abstracción estructural
-        try:
-            # Simulación de handshake con endpoint Dreo Cloud
-            # En producción puedes apoyarte en la librería nativa 'pydreo' 
-            self.token = "mock_valid_bearer_token_from_dreo_cloud"
-            self.device_sn = "DREO-HTF004S-SALA01" 
-            print(f"[DREO] Login exitoso. Dispositivo Vinculado Encontrado: {self.device_sn}")
-            return True
-        except Exception as e:
-            print(f"[DREO] Error al conectar con el servidor central: {e}")
-            return False
-
-    def send_dreo_command(self, action, value):
-        """Envía la instrucción estructurada a la API / WebSocket de Dreo"""
-        print(f"[DREO] Transmitiendo comando a la nube -> {action}: {value}")
-        # Aquí se realiza el POST/WebSocket original a Dreo Cloud:
-        # headers = {"Authorization": f"Bearer {self.token}"}
-        # requests.post(f"{DREO_API_URL}/device/control", json={"sn": self.device_sn, "method": action, "val": value})
-        return True
-
-    def on_mqtt_connect(self, client, userdata, flags, rc):
-        print(f"[MQTT] Conectado al broker de Mosquitto (Código: {rc}).")
-        client.subscribe(COMMAND_TOPIC)
-        print(f"[MQTT] Suscrito al tópico de comandos: {COMMAND_TOPIC}")
-
-    def on_mqtt_message(self, client, userdata, msg):
-        """Escucha las peticiones de Flask que llegan por MQTT y las traduce a Dreo"""
-        try:
-            payload = json.loads(msg.payload.decode("utf-8"))
-            print(f"[MQTT] Comando recibido desde el Backend: {payload}")
-
-            # Parseo de controles del DREO Smart Fan (5 Velocidades, 4 Modos, Oscilación)
-            if "power" in payload:
-                self.send_dreo_command("power", payload["power"])
-            if "speed" in payload:
-                # El dispositivo soporta niveles 1 a 5
-                speed = max(1, min(int(payload["speed"]), 5))
-                self.send_dreo_command("windlevel", speed)
-            if "mode" in payload:
-                # Modos DREO comunes: Normal, Natural, Sleep, Auto
-                self.send_dreo_command("mode", payload["mode"])
-            if "oscillation" in payload:
-                self.send_dreo_command("horizontalaos", payload["oscillation"])
-
-            # Reportar de vuelta el estado confirmado al backend
-            self.mqtt_client.publish(STATE_TOPIC, json.dumps({"status": "success", "current_state": payload}), retain=True)
-
-        except Exception as e:
-            print(f"[DRIVER ERROR] Error procesando mensaje MQTT: {e}")
-
-    def start(self):
-        if not self.login_dreo():
-            return
+        self.user_id = None
         
+        # Datos del dispositivo (Extraídos del YAML)
+        self.device_config = config['zonas']['sala']['dispositivos']['ventilador_dreo']
+        self.mqtt_topic = self.device_config['topico_comando']
+        
+        # Cliente MQTT (Sintaxis para paho-mqtt 2.x [6])
+        self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         self.mqtt_client.on_connect = self.on_mqtt_connect
         self.mqtt_client.on_message = self.on_mqtt_message
+
+    def login(self):
+        """Fase 1: Autenticación REST con Dreo Europa [3]"""
+        logger.info("[DREO] Intentando autenticación en la nube de Europa...")
+        # Nota: Aquí deberías usar las credenciales de tu cuenta de la app móvil [7, 8]
+        payload = {
+            "email": "fabian.mejia91@gmail.com", # Reemplazar con datos reales o del YAML
+            "password": "Fabuloso91"
+        }
         
-        self.mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-        print("[DRIVER] Driver de Ventilación DREO inicializado y escuchando...")
-        self.mqtt_client.loop_forever()
+        try:
+            # Endpoint simulado según el comportamiento de la API
+            response = requests.post(f"{DREO_API_URL}/api/v1/login", json=payload, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                self.token = data.get("accessToken")
+                logger.info("[DREO] Login exitoso. Token obtenido.")
+                return True
+            else:
+                logger.error(f"[DREO] Error de autenticación {response.status_code}: {response.text}")
+                return False
+        except Exception as e:
+            logger.error(f"[DREO] Error crítico de red al conectar con Dreo: {e}")
+            return False
+
+    def on_mqtt_connect(self, client, userdata, flags, rc, properties):
+        if rc == 0:
+            logger.info(f"[MQTT] Conectado al broker local. Suscribiendo a {self.mqtt_topic}...")
+            client.subscribe(self.mqtt_topic)
+        else:
+            logger.error(f"[MQTT] Error de conexión al broker. Código: {rc}")
+
+    def on_mqtt_message(self, client, userdata, msg):
+        """Procesa comandos recibidos desde el Backend (Flask) [9]"""
+        try:
+            payload = json.loads(msg.payload.decode())
+            logger.info(f"[COMMAND] Recibido de MQTT: {payload}")
+            
+            # Aquí se enviaría la petición HTTP/WebSocket a Dreo para ejecutar la acción [9]
+            # Ejemplo: self.send_dreo_command(payload)
+            logger.info(f"[DREO] Enviando comando a la nube: {payload}")
+            
+        except Exception as e:
+            logger.error(f"Error procesando mensaje MQTT: {e}")
+
+    def run(self):
+        if self.login():
+            try:
+                self.mqtt_client.connect("localhost", 1883, 60)
+                logger.info("[SYSTEM] Driver en ejecución y escuchando eventos...")
+                self.mqtt_client.loop_forever()
+            except Exception as e:
+                logger.error(f"[SYSTEM] No se pudo conectar al broker MQTT: {e}")
+        else:
+            logger.critical("[SYSTEM] Abortando inicio por falta de autenticación.")
 
 if __name__ == "__main__":
-    driver = DreoFanDriver()
-    driver.start()
+    conf = load_config()
+    if conf:
+        driver = DreoFanDriver(conf)
+        driver.run()
