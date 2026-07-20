@@ -1,119 +1,137 @@
 import os
 import yaml
 from flask import Flask, render_template, jsonify, request
+import paho.mqtt.client as mqtt
+import json
 
-app = Flask(__name__)
 
-# Ruta del archivo de configuración
+base_dir = os.path.abspath(os.path.dirname(__file__)) # apunta a backend/app/
+frontend_dir = os.path.join(base_dir, '../../frontend') # apunta a la raíz y luego a frontend/
+
+app = Flask(__name__, template_folder=frontend_dir, static_folder=frontend_dir)
+""" 
+app = Flask(__name__, 
+            template_folder='frontend',  # Apunta a tus carpetas reales
+            static_folder='frontend') """
+
+# -------------------------------------------------------------------------
+# CONFIGURACIÓN DEL BROKER MQTT (Contenedor Docker en WSL2)
+# -------------------------------------------------------------------------
+MQTT_BROKER = "127.0.0.1"  # Al estar en WSL2 y mapear el puerto, localhost es directo
+MQTT_PORT = 1883
+MQTT_TOPIC_PUBLISH = "domotica/casa/cambio_estado"
+
+mqtt_client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+
+def init_mqtt():
+    """Inicializa y conecta el cliente MQTT de forma no bloqueante"""
+    try:
+        mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        # Iniciamos el bucle de red en un hilo separado para no bloquear el servidor Flask
+        mqtt_client.loop_start()
+        print(f" [*] Puente MQTT conectado exitosamente a {MQTT_BROKER}:{MQTT_PORT}")
+    except Exception as e:
+        print(f" [!] Error crítico al conectar al Broker MQTT: {e}")
+
+# -------------------------------------------------------------------------
+# CARGA DE CONFIGURACIÓN DOMÓTICA (YAML)
+# -------------------------------------------------------------------------
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'settings.yaml')
 
 def cargar_configuracion():
-    """Carga la estructura de zonas y dispositivos desde el archivo YAML."""
-    try:
-        with open(CONFIG_PATH, 'r', encoding='utf-8') as file:
-            config = yaml.safe_load(file)
-            # Retornamos solo el diccionario de zonas
-            return config.get('zonas', {})
-    except FileNotFoundError:
-        print(f"Error: No se encontró el archivo en {CONFIG_PATH}. Inicializando vacío.")
-        return {}
-    except yaml.YAMLError as e:
-        print(f"Error al parsear el archivo YAML: {e}")
-        return {}
+    with open(CONFIG_PATH, 'r', encoding='utf-8') as file:
+        return yaml.safe_load(file)
 
-# Mantenemos el estado del sistema en memoria global para esta fase de desarrollo
-# En producción, esto se consultaría y guardaría en una Base de Datos o mediante MQTT
-ESTADO_DOMOTICA = cargar_configuracion()
+def guardar_configuracion(config):
+    with open(CONFIG_PATH, 'w', encoding='utf-8') as file:
+        yaml.safe_dump(config, file, default_flow_style=False, allow_unicode=True)
 
-
-# =====================================================================
-# RUTAS RESTful / ENDPOINTS
-# =====================================================================
+# -------------------------------------------------------------------------
+# RUTAS DEL SERVIDOR WEB & API REST
+# -------------------------------------------------------------------------
 
 @app.route('/')
 def index():
-    """
-    Ruta principal: Renderiza la interfaz gráfica HTML de la app de Smart Home.
-    Envía el estado actual de los dispositivos para que el frontend se dibuje
-    con los switches en su posición correcta (on/off).
-    """
-    # Renderiza index.html pasando el estado actual de la domótica
-    return render_template('index.html', zonas=ESTADO_DOMOTICA)
+    """Renderiza la interfaz móvil enviando los estados de los dispositivos"""
+    data = cargar_configuracion()
+    return render_template('index.html', zonas=data.get('zonas', {}))
 
-
-@app.route('/api/estado', methods=['GET'])
-def obtener_estado_json():
-    """Endpoint auxiliar para obtener el estado completo de la casa en JSON."""
-    return jsonify({"status": "success", "data": ESTADO_DOMOTICA}), 200
-
-
-@app.route('/toggle/<zona>/<dispositivo>', methods=['POST'])
-def toggle_dispositivo(zona, dispositivo):
-    """
-    Cambia (invierte) el estado de un dispositivo específico.
-    Ejemplo: POST /toggle/entrada/luz_entrada
-    """
-    # Validar si la zona existe en nuestro estado
-    if zona not in ESTADO_DOMOTICA:
-        return jsonify({"status": "error", "message": f"La zona '{zona}' no existe."}), 404
+@app.route('/toggle/<zona>/<dispositivo_id>', methods=['POST'])
+def toggle_dispositivo(zona, dispositivo_id):
+    """Cambia el estado de una bombilla y lo publica en el ecosistema MQTT"""
+    config = cargar_configuracion()
+    zonas = config.get('zonas', {})
+    
+    if zona in zonas and dispositivo_id in zonas[zona]['dispositivos']:
+        # 1. Mutar estado local/memoria
+        estado_actual = zonas[zona]['dispositivos'][dispositivo_id]['estado']
+        nuevo_estado = not estado_actual
+        zonas[zona]['dispositivos'][dispositivo_id]['estado'] = nuevo_estado
+        guardar_configuracion(config)
         
-    # Validar si el dispositivo existe en dicha zona
-    if dispositivo not in ESTADO_DOMOTICA[zona]['dispositivos']:
-        return jsonify({"status": "error", "message": f"El dispositivo '{dispositivo}' no existe en la zona '{zona}'."}), 404
+        # 2. Generar el Payload de control para los ESP32 (Estructura IoT Limpia)
+        payload = {
+            "zona": zona,
+            "dispositivo": dispositivo_id,
+            "estado": "ON" if nuevo_estado else "OFF",
+            "tipo": zonas[zona]['dispositivos'][dispositivo_id].get('tipo', 'luz')
+        }
+        
+        # 3. Publicar el mensaje vía MQTT
+        # Usamos qos=1 (garantiza que el mensaje llegue al broker al menos una vez)
+        mqtt_client.publish(MQTT_TOPIC_PUBLISH, json.dumps(payload), qos=1)
+        
+        return jsonify({
+            "status": "success", 
+            "zona": zona, 
+            "dispositivo": dispositivo_id, 
+            "nuevo_estado": nuevo_estado
+        }), 200
+        
+    return jsonify({"status": "error", "message": "Dispositivo o Zona no encontrada"}), 404
 
-    # Realizar el toggle (invertir el valor booleano)
-    estado_actual = ESTADO_DOMOTICA[zona]['dispositivos'][dispositivo]['estado']
-    nuevo_estado = not estado_actual
-    ESTADO_DOMOTICA[zona]['dispositivos'][dispositivo]['estado'] = nuevo_estado
+@app.route('/zona/maestro/<zona_nombre>', methods=['POST'])
+def maestro_zona(zona_nombre):
+    """Control masivo de una zona completa y su respectivo envío MQTT masivo o por ráfaga"""
+    req_data = request.get_json() or {}
+    forzar_estado = req_data.get('estado') # Espera un booleano (true/false)
+    
+    config = cargar_configuracion()
+    zonas = config.get('zonas', {})
+    
+    if zona_nombre in zonas:
+        dispositivos = zonas[zona_nombre]['dispositivos']
+        
+        # Si no especifican estado, hacemos un toggle colectivo basado en el primer elemento
+        if forzar_estado is None:
+            primer_disp = list(dispositivos.keys())[0]
+            forzar_estado = not dispositivos[primer_disp]['estado']
+            
+        # Actualizamos todos los dispositivos de la zona y disparamos comandos MQTT
+        for disp_id in dispositivos:
+            dispositivos[disp_id]['estado'] = forzar_estado
+            
+            payload = {
+                "zona": zona_nombre,
+                "dispositivo": disp_id,
+                "estado": "ON" if forzar_estado else "OFF",
+                "tipo": dispositivos[disp_id].get('tipo', 'luz')
+            }
+            mqtt_client.publish(MQTT_TOPIC_PUBLISH, json.dumps(payload), qos=1)
+            
+        guardar_configuracion(config)
+        return jsonify({"status": "success", "zona": zona_nombre, "estado_colectivo": forzar_estado}), 200
 
-    # Aquí es donde en el futuro enviarías un comando MQTT: client.publish(f"casa/{zona}/{dispositivo}", "1" if nuevo_estado else "0")
+    return jsonify({"status": "error", "message": "Zona maestra no válida"}), 404
 
-    return jsonify({
-        "status": "success",
-        "message": f"Estado de {dispositivo} cambiado con éxito.",
-        "zona": zona,
-        "dispositivo": dispositivo,
-        "nuevo_estado": nuevo_estado
-    }), 200
-
-
-@app.route('/zona/maestro/<nombre_zona>', methods=['POST'])
-def control_maestro_zona(nombre_zona):
-    """
-    Control masivo para encender o apagar todos los dispositivos de una zona a la vez.
-    Espera un JSON en el cuerpo de la petición con el estado objetivo.
-    Ejemplo Body JSON: {"accion": "apagar"} o {"accion": "encender"}
-    """
-    # Validar si la zona existe
-    if nombre_zona not in ESTADO_DOMOTICA:
-        return jsonify({"status": "error", "message": f"La zona '{nombre_zona}' no existe."}), 404
-
-    # Obtener la acción del cuerpo de la solicitud
-    datos = request.get_json() or {}
-    accion = datos.get('accion')
-
-    if accion not in ['encender', 'apagar']:
-        return jsonify({"status": "error", "message": "Acción inválida. Use 'encender' o 'apagar'."}), 400
-
-    # Determinar el estado booleano objetivo
-    estado_objetivo = True if accion == 'encender' else False
-
-    # Modificar de forma masiva todos los dispositivos dentro de la zona seleccionada
-    for disp_id in ESTADO_DOMOTICA[nombre_zona]['dispositivos']:
-        ESTADO_DOMOTICA[nombre_zona]['dispositivos'][disp_id]['estado'] = estado_objetivo
-
-    return jsonify({
-        "status": "success",
-        "message": f"Control maestro ejecutado: Todos los dispositivos de '{nombre_zona}' se han cambiado a {accion}.",
-        "zona": nombre_zona,
-        "estado_dispositivos": estado_objetivo
-    }), 200
-
-
-# =====================================================================
-# EJECUCIÓN DEL SERVIDOR
-# =====================================================================
+# -------------------------------------------------------------------------
+# ARRANQUE SEGURO
+# -------------------------------------------------------------------------
 if __name__ == '__main__':
-    # Ejecutar en modo debug para desarrollo local en WSL 2
-    # Escucha en 0.0.0.0 para que puedas acceder desde el navegador de Windows usando localhost:5000
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    init_mqtt() # Levantamos el puente MQTT antes del servidor web
+    try:
+        app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+    finally:
+        # Al detener Flask de forma limpia, cerramos el hilo del cliente MQTT
+        mqtt_client.loop_stop()
+        mqtt_client.disconnect()

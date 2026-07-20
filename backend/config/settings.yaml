@@ -1,41 +1,39 @@
-# config/settings.yaml
-# Configuración inicial de zonas y dispositivos para el sistema domótico
-
+# Configuración física de zonas y luces del Dúplex
 zonas:
   entrada:
     nombre: "Entrada"
     dispositivos:
-      luz_entrada: { nombre: "Luz Entrada", estado: false }
+      luz_entrada_1: { nombre: "Luz Principal", estado: false }
   
   escaleras:
     nombre: "Escaleras"
     dispositivos:
-      foco_techo: { nombre: "Foco de Techo", estado: false }
-  
-  cocina:
-    nombre: "Cocina"
-    dispositivos:
-      luz_principal: { nombre: "Luz Principal Cocina", estado: false }
-      barra: { nombre: "Luz Barra", estado: false }
+      luz_techo_escaleras: { nombre: "Foco de Techo", estado: false }
   
   sala:
     nombre: "Sala"
     dispositivos:
-      lampara_sofica: { nombre: "Lámpara Sofá", estado: false }
-      luz_ambiental: { nombre: "Luz Ambiental", estado: false }
+      luz_sala_1: { nombre: "Luz Ambiente", estado: false }
+      luz_sala_2: { nombre: "Luz Principal", estado: false }
   
+  cocina:
+    nombre: "Cocina"
+    dispositivos:
+      luz_cocina_1: { nombre: "Barra Cocina", estado: false }
+      luz_cocina_2: { nombre: "Techo Cocina", estado: false }
+
   recamara_principal:
     nombre: "Recámara Principal"
     dispositivos:
-      luz_1: { nombre: "Luz Techo 1", estado: false }
-      luz_2: { nombre: "Luz Techo 2", estado: false }
-      luz_3: { nombre: "Luz Techo 3", estado: false }
-      luz_4: { nombre: "Luz Techo 4", estado: false }
+      luz_rp_1: { nombre: "Foco General", estado: false }
+      luz_rp_2: { nombre: "Foco Cama Izq", estado: false }
+      luz_rp_3: { nombre: "Foco Cama Der", estado: false }
+      luz_rp_4: { nombre: "Cinta LED", estado: false }
 
   recamara_secundaria:
     nombre: "Recámara Secundaria"
     dispositivos:
-      luz_1: { nombre: "Luz Techo 1", estado: false }
-      luz_2: { nombre: "Luz Techo 2", estado: false }
-      luz_3: { nombre: "Luz Techo 3", estado: false }
-      luz_4: { nombre: "Luz Techo 4", estado: false }
+      luz_rs_1: { nombre: "Foco General", estado: false }
+      luz_rs_2: { nombre: "Escritorio", estado: false }
+      luz_rs_3: { nombre: "Lectura 1", estado: false }
+      luz_rs_4: { nombre: "Lectura 2", estado: false }
