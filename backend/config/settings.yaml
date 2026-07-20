@@ -1,39 +1,16 @@
-# Configuración física de zonas y luces del Dúplex
+# config/settings.yaml
 zonas:
-  entrada:
-    nombre: "Entrada"
-    dispositivos:
-      luz_entrada_1: { nombre: "Luz Principal", estado: false }
-  
-  escaleras:
-    nombre: "Escaleras"
-    dispositivos:
-      luz_techo_escaleras: { nombre: "Foco de Techo", estado: false }
-  
   sala:
-    nombre: "Sala"
+    nombre: "Sala de Estar"
+    icono: "sofa"
     dispositivos:
-      luz_sala_1: { nombre: "Luz Ambiente", estado: false }
-      luz_sala_2: { nombre: "Luz Principal", estado: false }
-  
-  cocina:
-    nombre: "Cocina"
-    dispositivos:
-      luz_cocina_1: { nombre: "Barra Cocina", estado: false }
-      luz_cocina_2: { nombre: "Techo Cocina", estado: false }
-
-  recamara_principal:
-    nombre: "Recámara Principal"
-    dispositivos:
-      luz_rp_1: { nombre: "Foco General", estado: false }
-      luz_rp_2: { nombre: "Foco Cama Izq", estado: false }
-      luz_rp_3: { nombre: "Foco Cama Der", estado: false }
-      luz_rp_4: { nombre: "Cinta LED", estado: false }
-
-  recamara_secundaria:
-    nombre: "Recámara Secundaria"
-    dispositivos:
-      luz_rs_1: { nombre: "Foco General", estado: false }
-      luz_rs_2: { nombre: "Escritorio", estado: false }
-      luz_rs_3: { nombre: "Lectura 1", estado: false }
-      luz_rs_4: { nombre: "Lectura 2", estado: false }
+      ventilador_sala:
+        nombre: "Ventilador DREO"
+        tipo: "ventilador"
+        estado: false
+        velocidad: 1
+        modo: "normal"
+        oscilacion: false
+        mqtt:
+          sub_topic: "casa/sala/ventilador/estado"
+          pub_topic: "casa/sala/ventilador/comando"
